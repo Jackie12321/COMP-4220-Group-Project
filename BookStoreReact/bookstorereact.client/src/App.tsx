@@ -1,46 +1,24 @@
-﻿import { useState } from "react";
+﻿import { Routes, Route } from "react-router-dom";
+import MainLayout from "./layouts/MainLayout";
+import Home from "./pages/Home";
+import Profile from "./pages/Profile";
+import Login from "./pages/Login";
 
-function App() {
-    const [data, setData] = useState<any>(null);
+//NO HEADER PAGES BELOW IMPORT
 
-    async function checkApi() {
-        try {
-            const res = await fetch("http://localhost:5187/api/Health");
-            const json = await res.json();
-            setData(json);
-        } catch (err) {
-            setData({ error: "API not reachable" });
-        }
-    }
-
+export default function App() {
     return (
-        <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-6 space-y-6">
-                <div>
-                    <h1 className="text-sm font-bold text-red-500">
-                        BookStore React
-                    </h1>
-                </div>
+        <Routes>
+            {/* Routes WITH header */}
+            <Route element={<MainLayout />}>
+                <Route path="/" element={<Home />} />
+                <Route path="/profile" element={<Profile />} />
 
-                <button
-                    onClick={checkApi}
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2.5 text-sm font-medium transition"
-                >
-                    Check API health
-                </button>
+            </Route>
 
-                {data && (
-                    <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 overflow-auto">
-                        {JSON.stringify(data, null, 2)}
-                    </pre>
-                )}
-
-                <p className="text-xs text-slate-400 text-center">
-                    Backend http://localhost:5187/api/health
-                </p>
-            </div>
-        </div>
+            {/* Routes WITHOUT header */}
+            <Route path="/login" element={<Login />} />
+            <Route path="*" element={<div className="p-6">Not found</div>} />
+        </Routes>
     );
 }
-
-export default App;
