@@ -13,7 +13,6 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowClient", policy =>
     {
-        // you can tighten this later
         policy
             .WithOrigins(
                 "http://localhost:5173",
