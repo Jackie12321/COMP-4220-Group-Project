@@ -1,4 +1,5 @@
-﻿import Button from "../components/Button";
+﻿import BooksSection from "../components/BooksSection";
+import Button from "../components/Button";
 
 export default function Home() {
     return (
@@ -23,13 +24,7 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* Placeholder for Book Section */}
-            <section className="bg-white py-24 text-center">
-                <h2 className="text-3xl font-semibold text-gray-800">Books Section</h2>
-                <p className="text-gray-500 mt-4">
-                    This section will display available books soon.
-                </p>
-            </section>
+            <BooksSection />
 
             {/* Placeholder for Recommendation Section */}
             <section className="bg-gray-100 py-24 text-center">
@@ -41,4 +36,3 @@ export default function Home() {
         </main>
     );
 }
-
