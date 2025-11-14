@@ -1,0 +1,259 @@
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using Microsoft.AspNetCore.Mvc;
+using BookStoreLIB;
+
+namespace BookStoreReact.Server.Controllers
+{
+    [ApiController]
+    [Route("api/test")]
+    public class TestController : ControllerBase
+    {
+        // DB CONN STRING 
+        private static string BuildConnString()
+        {
+            var user = Environment.GetEnvironmentVariable("AGILE_DB_USER");
+            var pass = Environment.GetEnvironmentVariable("AGILE_DB_PASSWORD");
+
+            if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
+                throw new InvalidOperationException("Missing AGILE_DB_USER/AGILE_DB_PASSWORD.");
+
+            var csb = new SqlConnectionStringBuilder
+            {
+                DataSource = "tfs.cs.uwindsor.ca",
+                InitialCatalog = "Agile1422DB25",
+                PersistSecurityInfo = true,
+                UserID = user,
+                Password = pass,
+                Encrypt = true,
+                TrustServerCertificate = true
+            };
+
+            return csb.ConnectionString;
+        }
+
+        // PING
+        [HttpGet]
+        public IActionResult Get()
+        {
+            return Ok(new
+            {
+                status = "test-ok",
+                time = DateTime.UtcNow
+            });
+        }
+
+        // LOGIN
+        public class LoginRequest
+        {
+            public string Username { get; set; } = "";
+            public string Password { get; set; } = "";
+        }
+
+        [HttpPost("login")]
+        public IActionResult Login([FromBody] LoginRequest req)
+        {
+            var user = new UserData();
+
+            try
+            {
+                bool ok = user.LogIn(req.Username, req.Password);
+
+                if (!ok)
+                    return Unauthorized(new { message = "Invalid username or password." });
+
+                return Ok(new
+                {
+                    userId = user.UserID,
+                    username = user.LoginName,
+                    isManager = user.IsManager,
+                    type = user.Type
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Server error.", detail = ex.Message });
+            }
+        }
+
+        // BOOKS 
+        [HttpGet("books")]
+        public ActionResult<IEnumerable<Book>> GetBooks()
+        {
+            var books = new List<Book>();
+
+            using (var conn = new SqlConnection(BuildConnString()))
+            {
+                conn.Open();
+                const string sql = "SELECT ISBN, CategoryID, Title, Author, Price, Year, InStock FROM BookData";
+
+                using (var cmd = new SqlCommand(sql, conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var book = new Book
+                        {
+                            ISBN = reader.GetString(0),
+                            CategoryID = reader.GetInt32(1),
+                            Title = reader.GetString(2),
+                            Author = reader.GetString(3),
+                            Price = reader.GetDecimal(4),
+                            Year = reader.GetString(5),
+                            InStock = reader.GetInt32(6)
+                        };
+
+                        books.Add(book);
+                    }
+                }
+            }
+
+            return Ok(books);
+        }
+
+        // CART
+        private static readonly ConcurrentDictionary<int, Cart> Carts
+            = new ConcurrentDictionary<int, Cart>();
+
+        private Cart GetCart(int userId)
+        {
+            return Carts.GetOrAdd(userId, _ => new Cart());
+        }
+
+        [HttpGet("cart/{userId:int}")]
+        public ActionResult<IEnumerable<Book>> GetCartItems(int userId)
+        {
+            var cart = GetCart(userId);
+            return Ok(cart.cartBooks);
+        }
+
+        public class AddItemRequest
+        {
+            public int UserId { get; set; }
+            public string ISBN { get; set; } = "";
+            public int CategoryID { get; set; }
+            public string Title { get; set; } = "";
+            public string Author { get; set; } = "";
+            public decimal Price { get; set; }
+            public int SupplierId { get; set; }
+            public string Year { get; set; } = "";
+            public string Edition { get; set; } = "";
+            public string Publisher { get; set; } = "";
+        }
+
+        // ITEMS 
+        [HttpPost("cart/items")]
+        public IActionResult AddCartItem([FromBody] AddItemRequest req)
+        {
+            var cart = GetCart(req.UserId);
+
+            var book = new Book
+            {
+                ISBN = req.ISBN,
+                CategoryID = req.CategoryID,
+                Title = req.Title,
+                Author = req.Author,
+                Price = req.Price,
+                SupplierId = req.SupplierId,
+                Year = req.Year,
+                Edition = req.Edition,
+                Publisher = req.Publisher
+            };
+
+            cart.addBook(book);
+            return Ok(cart.cartBooks);
+        }
+
+        public class RemoveItemRequest
+        {
+            public int UserId { get; set; }
+            public string ISBN { get; set; } = "";
+        }
+
+        [HttpDelete("cart/items")]
+        public IActionResult RemoveCartItem([FromBody] RemoveItemRequest req)
+        {
+            var cart = GetCart(req.UserId);
+            var dummy = new Book { ISBN = req.ISBN };
+
+            bool ok = cart.removeBook(dummy);
+            if (!ok)
+                return NotFound(new { message = "Book not found in cart." });
+
+            return Ok(cart.cartBooks);
+        }
+
+        [HttpDelete("cart/{userId:int}")]
+        public IActionResult ClearCart(int userId)
+        {
+            var cart = GetCart(userId);
+            cart.clearCart();
+            return Ok();
+        }
+
+        // CHECKOUT
+        public class CheckoutRequest
+        {
+            public int UserId { get; set; }
+            public string Email { get; set; } = "";
+            public string CardNumber { get; set; } = "";
+            public string CVV { get; set; } = "";
+            public string Expiry { get; set; } = ""; // MM/YY
+            public string NameOnCard { get; set; } = "";
+            public string Address { get; set; } = "";
+            public decimal DeliveryFee { get; set; } = 0m;
+            public decimal TaxRate { get; set; } = 0.13m;
+        }
+
+        [HttpPost("cart/checkout")]
+        public IActionResult Checkout([FromBody] CheckoutRequest req)
+        {
+            var cart = GetCart(req.UserId);
+            var items = cart.cartBooks;
+
+            var required = new Dictionary<string, string>
+            {
+                { "Email",      req.Email },
+                { "CardNumber", req.CardNumber },
+                { "CVV",        req.CVV },
+                { "Expiry",     req.Expiry },
+                { "NameOnCard", req.NameOnCard },
+                { "Address",    req.Address }
+            };
+
+            var missing = PaymentRules.GetMissingFields(required);
+            if (missing.Count > 0)
+                return BadRequest(new { message = "Missing required fields.", missing });
+
+            if (!PaymentRules.IsValidEmail(req.Email))
+                return BadRequest(new { message = "Invalid email address." });
+
+            if (!PaymentRules.IsValidCardNumber(req.CardNumber))
+                return BadRequest(new { message = "Invalid card number." });
+
+            if (!PaymentRules.IsValidCVV(req.CVV))
+                return BadRequest(new { message = "Invalid CVV." });
+
+            if (!PaymentRules.IsValidExpiry(req.Expiry, DateTime.UtcNow))
+                return BadRequest(new { message = "Card is expired or expiry is invalid." });
+
+            var (subtotal, taxes, total) =
+                PaymentRules.ComputeTotals(items, req.TaxRate, req.DeliveryFee);
+
+            return Ok(new
+            {
+                subtotal,
+                taxes,
+                delivery = req.DeliveryFee,
+                total,
+                itemCount = items.Count
+            });
+        }
+    }
+}
